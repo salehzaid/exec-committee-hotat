@@ -96,6 +96,19 @@ button:focus:not(:focus-visible),a:focus:not(:focus-visible){outline:none}
 }
 .px-link:hover{background:#b3801f;color:#fff;border-color:#b3801f}
 .px-link svg{width:14px;height:14px;flex-shrink:0}
+button.px-link{font-family:inherit;line-height:inherit}
+.ql-bar{display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end;max-width:min(52vw,560px)}
+.ql-chip{cursor:pointer;border:1px solid #d4a84a}
+.cred-box{background:#fbfaf6;border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:12px}
+.cred-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px dashed var(--line)}
+.cred-row:last-child{border-bottom:none}
+.cred-row .clbl{font-size:11.5px;color:var(--soft);font-weight:600;min-width:88px}
+.cred-row .cval{flex:1;font-size:14px;font-weight:600;color:var(--petrol-d);word-break:break-all;font-variant-numeric:tabular-nums}
+.cred-row .cval.masked{letter-spacing:.12em}
+.link-card{border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:10px;background:#fbfaf6}
+.link-card b{display:block;color:var(--petrol-d);margin-bottom:4px}
+.link-card .lu{font-size:12px;color:var(--muted);word-break:break-all;margin-bottom:8px}
+.link-card .lm{font-size:12px;color:var(--soft)}
 
 /* ---------- Login gate ---------- */
 .login-gate{
@@ -602,7 +615,7 @@ tr:hover td{background:#faf7f0}
 .multi-cell .chart-svg{min-height:0}
 @media(max-width:920px){.chart-grid{grid-template-columns:1fr}.exec-strip{gap:16px}.exec-px{width:100%;justify-content:space-around}.miss-row{flex-wrap:wrap}.miss-vals{margin-inline-start:0}.radar-layout{grid-template-columns:1fr}.radar-desk{display:none}.dom-multi{grid-template-columns:1fr}.dom-h{flex-wrap:wrap}.lol-name{flex-basis:120px}}
 @media print{
-  .login-gate,.px-link,.tbtn.quiet{display:none!important}
+  .login-gate,.px-link,.ql-bar,.tbtn.quiet{display:none!important}
   .topbar,.nav,.toolbar,.btn,.iconbtn,.row-actions,.tbtn{display:none!important}
   .shell{display:block} .main{max-width:none;padding:0}
   body{background:#fff;background-image:none}
@@ -627,6 +640,7 @@ tr:hover td{background:#faf7f0}
   .brand .sub{font-size:10.5px}
   .ctype-badge{font-size:10.5px;padding:2px 8px}
   .toolbar{margin-inline-start:auto;justify-content:flex-end;gap:6px;width:auto}
+  .ql-bar{max-width:100%;justify-content:flex-end}
   .tbtn{padding:7px 10px;font-size:12px;border-radius:8px;white-space:nowrap}
   .tbtn svg{width:14px;height:14px}
   .shell{display:flex;min-height:calc(100dvh - var(--topbar-h))}
@@ -726,10 +740,11 @@ tr:hover td{background:#faf7f0}
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z M17 21v-8H7v8M7 3v5h8"></path></svg>حفظ الملف
     </button>
     <button class="tbtn quiet" id="logoutBtn" onclick="logoutCommittee()" title="خروج">خروج</button>
-    <a class="px-link" href="https://moh.hlpx-sa.com/pxconnect/login" target="_blank" rel="noopener noreferrer">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><path d="M15 3h6v6"></path><path d="M10 14L21 3"></path></svg>
-      تجربة المريض
-    </a>
+    <button class="tbtn" id="linksManageBtn" onclick="manageLinksModal()" title="إدارة الروابط الخاصة">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l1.42-1.42a5 5 0 0 0-7.07-7.07L10.5 6.5M14 11a5 5 0 0 0-7.54-.54L5.04 11.88a5 5 0 0 0 7.07 7.07L13.5 17.5"/></svg>
+      إدارة الروابط
+    </button>
+    <div class="ql-bar" id="quickLinksBar"></div>
   </div>
 </header>
 
@@ -796,7 +811,7 @@ function blankState(){ return {
   meta:{id:uid(),savedAt:null,schema:1},
   identity:{name:"",type:"",objective:"",scope:"",formationRef:"",formationDate:"",
     termStart:"",termEnd:"",frequency:"monthly",quorumType:"percent",quorumValue:50,coordinator:""},
-  responsibilities:[], authorities:[], members:[], meetings:[], recommendations:[], tasks:[], indicators:{months:[]}
+  responsibilities:[], authorities:[], members:[], meetings:[], recommendations:[], tasks:[], quickLinks:[], indicators:{months:[]}
 };}
 
 function load(){
@@ -808,7 +823,12 @@ function load(){
   else if(embedded) state=embedded;
   else state=blankState();
   // ensure arrays exist
-  ['responsibilities','authorities','members','meetings','recommendations','tasks'].forEach(k=>{ if(!Array.isArray(state[k])) state[k]=[]; });
+  const hadLinks=Array.isArray(state.quickLinks);
+  ['responsibilities','authorities','members','meetings','recommendations','tasks','quickLinks'].forEach(k=>{ if(!Array.isArray(state[k])) state[k]=[]; });
+  if(!hadLinks){
+    state.quickLinks=[{id:'px_default',title:'تجربة المريض',url:'https://moh.hlpx-sa.com/pxconnect/login',user:'',pass:'',note:''}];
+    autosave();
+  }
   state.tasks.forEach(t=>{
     if(t.archived===undefined)t.archived=false;
     if(t.archivedAt===undefined)t.archivedAt='';
@@ -861,7 +881,7 @@ function buildSaveHTML(){
   clone.querySelector('body')?.classList.remove('nav-open');
   clone.querySelector('body')?.classList.remove('nav-rail');
   clone.querySelector('#nav')?.classList.remove('open');
-  clone.querySelector('#navToggle')?.setAttribute('aria-expanded','false');
+  clone.querySelector('#quickLinksBar')&&(clone.querySelector('#quickLinksBar').innerHTML='');
   clone.querySelector('#committeeData').textContent=JSON.stringify(state);
   return '<!DOCTYPE html>\n'+clone.outerHTML;
 }
@@ -946,6 +966,7 @@ function renderAll(){
   $('#hdrName').textContent = state.identity.name || 'متابعة اللجنة';
   const tb=$('#hdrType'); if(state.identity.type){tb.style.display='';tb.textContent=state.identity.type;} else tb.style.display='none';
   const cT=$('#cTasks'); if(cT) cT.textContent=state.tasks.filter(t=>!t.archived&&t.status!=='done'&&t.status!=='cancelled').length;
+  renderQuickLinks();
   renderDash(); renderTasks(); renderIndicators();
   setTimeout(syncTopbarHeight,0);
 }
@@ -2187,6 +2208,114 @@ function logoutCommittee(){
   if(err){ err.hidden=true; err.textContent=''; }
   const inp=document.getElementById('loginPin');
   if(inp){ inp.value=''; setTimeout(()=>inp.focus(),40); }
+}
+
+const QL_ICON='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><path d="M15 3h6v6"/><path d="M10 14L21 3"/></svg>';
+function ensureLinkUrl(u){
+  const s=String(u||'').trim();
+  if(!s) return '';
+  const withProto=/^[a-z][a-z0-9+.-]*:/i.test(s)?s:'https://'+s;
+  if(/^(javascript|data|vbscript):/i.test(withProto)) return '';
+  return withProto;
+}
+function renderQuickLinks(){
+  const bar=$('#quickLinksBar'); if(!bar) return;
+  const links=state.quickLinks||[];
+  bar.innerHTML=links.map(l=>`<button type="button" class="px-link ql-chip" title="${esc(l.title||'رابط')}" onclick="openQuickLink('${l.id}')">${QL_ICON}${esc(l.title||'رابط')}</button>`).join('');
+  syncTopbarHeight();
+}
+function copyLinkField(id,field){
+  const l=(state.quickLinks||[]).find(x=>x.id===id); if(!l) return;
+  const v=field==='user'?l.user:l.pass;
+  copyText(v, field==='user'?'تم نسخ اسم المستخدم':'تم نسخ كلمة المرور');
+}
+function copyText(v,ok){
+  const t=v==null?'':String(v);
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(t).then(()=>toast(ok||'تم النسخ')).catch(()=>fallbackCopy(t,ok));
+  } else fallbackCopy(t,ok);
+}
+function fallbackCopy(t,ok){
+  const ta=document.createElement('textarea');
+  ta.value=t; ta.setAttribute('readonly',''); ta.style.cssText='position:fixed;left:-9999px;top:0';
+  document.body.appendChild(ta); ta.select(); ta.setSelectionRange(0,t.length);
+  try{ document.execCommand('copy'); toast(ok||'تم النسخ'); }catch(e){ toast('تعذّر النسخ'); }
+  document.body.removeChild(ta);
+}
+function togglePassVis(id){
+  const el=document.getElementById(id); if(!el) return;
+  const show=el.dataset.show!=='1';
+  el.dataset.show=show?'1':'0';
+  el.textContent=show?(el.dataset.raw||''):'••••••••';
+  el.classList.toggle('masked',!show);
+  const btn=document.getElementById(id+'_vis');
+  if(btn) btn.textContent=show?'إخفاء':'إظهار';
+}
+function launchQuickLink(id){
+  const l=(state.quickLinks||[]).find(x=>x.id===id); if(!l) return;
+  const url=ensureLinkUrl(l.url); if(!url){ toast('لا يوجد رابط صالح'); return; }
+  window.open(url,'_blank','noopener,noreferrer');
+}
+function openQuickLink(id){
+  const l=(state.quickLinks||[]).find(x=>x.id===id); if(!l) return;
+  const url=ensureLinkUrl(l.url);
+  const hasCred=!!(l.user||l.pass);
+  if(!hasCred){
+    if(url) window.open(url,'_blank','noopener,noreferrer');
+    else toast('لا يوجد رابط');
+    return;
+  }
+  const passId='qlp_'+id;
+  openModal(l.title||'رابط',`
+    <p style="color:var(--muted);font-size:13px;margin-bottom:14px;word-break:break-all">${esc(url||'لا رابط')}</p>
+    <div class="cred-box">
+      <div class="cred-row"><span class="clbl">اسم المستخدم</span><span class="cval">${esc(l.user||'—')}</span>
+        <button class="btn ghost sm" onclick="copyLinkField('${l.id}','user')">نسخ</button></div>
+      <div class="cred-row"><span class="clbl">كلمة المرور</span><span class="cval masked" id="${passId}" data-raw="${esc(l.pass||'')}" data-show="0">••••••••</span>
+        <button class="btn ghost sm" id="${passId}_vis" onclick="togglePassVis('${passId}')">إظهار</button>
+        <button class="btn ghost sm" onclick="copyLinkField('${l.id}','pass')">نسخ</button></div>
+    </div>
+    ${l.note?`<p style="font-size:13px;color:var(--muted)">${esc(l.note)}</p>`:''}
+  `,`<button class="btn ghost" onclick="closeModal()">إغلاق</button>${url?`<button class="btn" onclick="launchQuickLink('${l.id}')">فتح الموقع</button>`:''}`);
+}
+function manageLinksModal(){
+  const links=state.quickLinks||[];
+  const body=links.length?links.map(l=>`<div class="link-card">
+    <b>${esc(l.title||'رابط')}</b>
+    <div class="lu">${esc(l.url||'—')}</div>
+    <div class="lm">${l.user?('المستخدم: '+esc(l.user)):'بلا مستخدم'} · ${l.pass?'كلمة مرور محفوظة':'بلا كلمة مرور'}</div>
+    <div class="row-actions" style="margin-top:10px;justify-content:flex-start">
+      <button class="btn ghost sm" onclick="linkFormModal('${l.id}')">${ic.edit} تعديل</button>
+      <button class="btn ghost sm" onclick="delQuickLink('${l.id}')">${ic.del} حذف</button>
+    </div>
+  </div>`).join(''):`<div class="empty"><p>لا روابط بعد — أضف رابط تجربة المريض أو أي منصة أخرى</p></div>`;
+  openModal('إدارة الروابط', body + `<p style="font-size:12px;color:var(--soft);margin:10px 0 12px">بيانات الدخول تُحفظ داخل الملف وعلى هذا الجهاز فقط، ولا تُرسل لأي موقع تلقائياً.</p><div><button class="btn" onclick="linkFormModal()">${ic.plus} إضافة رابط</button></div>`,
+    `<button class="btn ghost" onclick="closeModal()">إغلاق</button>`, true);
+}
+function linkFormModal(id){
+  const l=id?(state.quickLinks||[]).find(x=>x.id===id):{title:'',url:'',user:'',pass:'',note:''};
+  if(id&&!l){ toast('الرابط غير موجود'); return; }
+  openModal(id?'تعديل رابط':'رابط جديد',`<div class="form-grid">
+    <div class="fld full"><label>اسم الرابط</label><input id="ql_title" value="${esc(l.title)}" placeholder="مثال: تجربة المريض"></div>
+    <div class="fld full"><label>الرابط</label><input id="ql_url" value="${esc(l.url)}" placeholder="https://..." dir="ltr"></div>
+    <div class="fld"><label>اسم المستخدم</label><input id="ql_user" value="${esc(l.user||'')}" autocomplete="off"></div>
+    <div class="fld"><label>كلمة المرور</label><input id="ql_pass" type="password" value="${esc(l.pass||'')}" autocomplete="new-password"></div>
+    <div class="fld full"><label>ملاحظة <span class="hint">— اختياري</span></label><textarea id="ql_note">${esc(l.note||'')}</textarea></div>
+  </div>`,`<button class="btn ghost" onclick="manageLinksModal()">رجوع</button><button class="btn" onclick="saveQuickLink('${id||''}')">حفظ</button>`);
+}
+function saveQuickLink(id){
+  const o={title:val('ql_title'),url:val('ql_url'),user:val('ql_user'),pass:val('ql_pass'),note:val('ql_note')};
+  if(!o.title){toast('أدخل اسم الرابط');return;}
+  if(!o.url){toast('أدخل الرابط');return;}
+  o.url=ensureLinkUrl(o.url);
+  if(id){ const cur=(state.quickLinks||[]).find(x=>x.id===id); if(!cur){toast('الرابط غير موجود');return;} Object.assign(cur,o); }
+  else { o.id=uid(); state.quickLinks=state.quickLinks||[]; state.quickLinks.push(o); }
+  closeModal(); touch(); toast('تم حفظ الرابط'); manageLinksModal();
+}
+function delQuickLink(id){
+  if(!confirm('حذف هذا الرابط وبيانات دخوله؟')) return;
+  state.quickLinks=(state.quickLinks||[]).filter(x=>x.id!==id);
+  closeModal(); touch(); toast('تم حذف الرابط'); manageLinksModal();
 }
 
 /* ---------- boot ---------- */
