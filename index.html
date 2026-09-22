@@ -705,7 +705,7 @@ tr:hover td{background:#faf7f0}
 </style>
 </head>
 <body class="locked">
-<script>try{if(sessionStorage.getItem('committee_auth')==='ok')document.body.classList.remove('locked')}catch(e){}</script>
+<script>try{const a=sessionStorage.getItem('committee_auth')||'';if(a.includes('.'))document.body.classList.remove('locked')}catch(e){}</script>
 
 <div id="loginGate" class="login-gate" role="dialog" aria-modal="true" aria-labelledby="loginTitle">
   <form class="login-card" onsubmit="return tryLogin(event)" autocomplete="off">
@@ -814,11 +814,7 @@ function blankState(){ return {
   responsibilities:[], authorities:[], members:[], meetings:[], recommendations:[], tasks:[], quickLinks:[], indicators:{months:[]}
 };}
 
-const CLOUD={
-  sql:'https://ep-shy-credit-b1xn0ue3.c-5.eu-central-1.aws.neon.tech/sql',
-  conn:'postgresql://committee_app:npg_vAV48leKghnz@ep-shy-credit-b1xn0ue3.c-5.eu-central-1.aws.neon.tech/neondb?sslmode=require',
-  key:'main'
-};
+const CLOUD={api:'https://exec-committee-hotat.vercel.app/api/sync'};
 function parseCloudPayload(raw){
   if(!raw) return null;
   if(typeof raw==='object') return raw.meta?raw:null;
@@ -835,19 +831,25 @@ function mergeStates(embedded,local,cloud){
   cands.forEach(s=>{ const sc=linksScore(s); if(sc>score){ score=sc; best.quickLinks=JSON.parse(JSON.stringify(s.quickLinks||[])); } });
   return best;
 }
-async function cloudSql(query,params){
-  const r=await fetch(CLOUD.sql,{
+async function cloudRequest(body,withAuth=true){
+  const headers={'Content-Type':'application/json'};
+  if(withAuth){
+    let token=''; try{ token=sessionStorage.getItem('committee_auth')||''; }catch(e){}
+    if(!token) throw new Error('not_authenticated');
+    headers.Authorization='Bearer '+token;
+  }
+  const r=await fetch(CLOUD.api,{
     method:'POST',
-    headers:{'Neon-Connection-String':CLOUD.conn,'Content-Type':'application/json','Accept':'application/json'},
-    body:JSON.stringify({query,params:params||[]})
+    headers,
+    body:JSON.stringify(body)
   });
-  if(!r.ok) throw new Error('cloud '+r.status);
+  if(!r.ok) throw new Error('cloud_'+r.status);
   return r.json();
 }
 async function cloudPull(){
   try{
-    const res=await cloudSql('select payload from committee_state where id=$1',[CLOUD.key]);
-    return parseCloudPayload(res.rows&&res.rows[0]&&res.rows[0].payload);
+    const res=await cloudRequest({action:'get'});
+    return parseCloudPayload(res.state);
   }catch(e){ return null; }
 }
 let cloudBusy=false;
@@ -858,10 +860,7 @@ async function cloudPush(){
     if(!state.meta) state.meta={};
     state.meta.savedAt=new Date().toISOString();
     try{ localStorage.setItem('committee_'+state.meta.id, JSON.stringify(state)); }catch(e){}
-    await cloudSql(
-      'insert into committee_state(id, payload, updated_at) values($1, $2::jsonb, now()) on conflict (id) do update set payload=excluded.payload, updated_at=now()',
-      [CLOUD.key, JSON.stringify(state)]
-    );
+    await cloudRequest({action:'save',state});
     return true;
   }catch(e){ return false; }
   finally{ cloudBusy=false; }
@@ -926,6 +925,19 @@ async function hydrateCloud(){
   const newer=cloud && savedAtMs(state)>savedAtMs(cloud);
   if(newer || (richer && (cloud || linksScore(state)>1))) await cloudPush();
   if(prevLinks!==JSON.stringify(state.quickLinks||[])) renderAll();
+}
+async function refreshCloudLinks(){
+  const cloud=await cloudPull();
+  if(!cloud||!Array.isArray(cloud.quickLinks)) return;
+  if(JSON.stringify(cloud.quickLinks)!==JSON.stringify(state.quickLinks||[])){
+    state.quickLinks=JSON.parse(JSON.stringify(cloud.quickLinks));
+    if(cloud.meta&&cloud.meta.savedAt){
+      state.meta.savedAt=cloud.meta.savedAt;
+    }
+    try{ localStorage.setItem('committee_'+state.meta.id, JSON.stringify(state)); }catch(e){}
+    renderQuickLinks();
+    toast('تم تحديث الروابط من السحابة');
+  }
 }
 
 /* ---------- file save (data embedded in HTML) ---------- */
@@ -2244,24 +2256,30 @@ function delMonth(id){ if(!confirm('حذف بيانات هذا الشهر؟'))re
 
 /* ---------- login gate ---------- */
 const AUTH_KEY='committee_auth';
-const AUTH_PIN='1122';
 function isCommitteeAuthed(){
-  try{ return sessionStorage.getItem(AUTH_KEY)==='ok'; }catch(e){ return false; }
+  try{ return (sessionStorage.getItem(AUTH_KEY)||'').includes('.'); }catch(e){ return false; }
 }
-function tryLogin(e){
+async function tryLogin(e){
   if(e) e.preventDefault();
   const inp=document.getElementById('loginPin');
   const err=document.getElementById('loginErr');
   const code=(inp&&inp.value||'').replace(/\s/g,'');
-  if(code===AUTH_PIN){
-    try{ sessionStorage.setItem(AUTH_KEY,'ok'); }catch(e){}
+  const submit=document.querySelector('.login-go');
+  if(submit){ submit.disabled=true; submit.textContent='جارٍ الدخول...'; }
+  try{
+    const res=await cloudRequest({action:'login',pin:code},false);
+    if(!res.token) throw new Error('invalid_token');
+    try{ sessionStorage.setItem(AUTH_KEY,res.token); }catch(e){}
     if(err){ err.hidden=true; err.textContent=''; }
     if(inp) inp.value='';
     document.body.classList.remove('locked');
     syncTopbarHeight();
-  } else {
-    if(err){ err.hidden=false; err.textContent='رمز الدخول غير صحيح. حاول مرة أخرى.'; }
+    await hydrateCloud();
+  }catch(ex){
+    if(err){ err.hidden=false; err.textContent='رمز الدخول غير صحيح أو تعذّر الاتصال. حاول مرة أخرى.'; }
     if(inp){ inp.value=''; inp.focus(); }
+  }finally{
+    if(submit){ submit.disabled=false; submit.textContent='دخول'; }
   }
   return false;
 }
@@ -2383,9 +2401,12 @@ function delQuickLink(id){
 }
 
 /* ---------- boot ---------- */
-if(isCommitteeAuthed()) document.body.classList.remove('locked');
+const authedAtBoot=isCommitteeAuthed();
+if(authedAtBoot) document.body.classList.remove('locked');
 else document.body.classList.add('locked');
-load(); renderAll(); hydrateCloud(); syncTopbarHeight(); checkLinked();
+load(); renderAll(); if(authedAtBoot) hydrateCloud(); syncTopbarHeight(); checkLinked();
+setInterval(()=>{ if(isCommitteeAuthed()) refreshCloudLinks(); },15000);
+document.addEventListener('visibilitychange',()=>{ if(!document.hidden&&isCommitteeAuthed()) refreshCloudLinks(); });
 if(!isCommitteeAuthed()){ const pin=document.getElementById('loginPin'); if(pin) pin.focus(); }
 /* الافتراضي: وضع الأيقونات على الشاشات الضيقة، والوضع الكامل على الشاشات الواسعة */
 (function initRail(){ let pref=null; try{ pref=localStorage.getItem('navRail'); }catch(e){}
