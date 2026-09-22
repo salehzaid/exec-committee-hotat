@@ -814,6 +814,58 @@ function blankState(){ return {
   responsibilities:[], authorities:[], members:[], meetings:[], recommendations:[], tasks:[], quickLinks:[], indicators:{months:[]}
 };}
 
+const CLOUD={
+  sql:'https://ep-shy-credit-b1xn0ue3.c-5.eu-central-1.aws.neon.tech/sql',
+  conn:'postgresql://committee_app:npg_vAV48leKghnz@ep-shy-credit-b1xn0ue3.c-5.eu-central-1.aws.neon.tech/neondb?sslmode=require',
+  key:'main'
+};
+function parseCloudPayload(raw){
+  if(!raw) return null;
+  if(typeof raw==='object') return raw.meta?raw:null;
+  try{ const o=JSON.parse(raw); return o&&o.meta?o:null; }catch(e){ return null; }
+}
+function linksScore(s){ return (s&&s.quickLinks||[]).reduce((n,l)=>n+1+(l&&l.user?2:0)+(l&&l.pass?3:0),0); }
+function savedAtMs(s){ return Date.parse((s&&s.meta&&s.meta.savedAt)||'')||0; }
+function mergeStates(embedded,local,cloud){
+  const cands=[embedded,local,cloud].filter(s=>s&&s.meta);
+  if(!cands.length) return blankState();
+  cands.sort((a,b)=>savedAtMs(b)-savedAtMs(a));
+  const best=JSON.parse(JSON.stringify(cands[0]));
+  let score=linksScore(best);
+  cands.forEach(s=>{ const sc=linksScore(s); if(sc>score){ score=sc; best.quickLinks=JSON.parse(JSON.stringify(s.quickLinks||[])); } });
+  return best;
+}
+async function cloudSql(query,params){
+  const r=await fetch(CLOUD.sql,{
+    method:'POST',
+    headers:{'Neon-Connection-String':CLOUD.conn,'Content-Type':'application/json','Accept':'application/json'},
+    body:JSON.stringify({query,params:params||[]})
+  });
+  if(!r.ok) throw new Error('cloud '+r.status);
+  return r.json();
+}
+async function cloudPull(){
+  try{
+    const res=await cloudSql('select payload from committee_state where id=$1',[CLOUD.key]);
+    return parseCloudPayload(res.rows&&res.rows[0]&&res.rows[0].payload);
+  }catch(e){ return null; }
+}
+let cloudBusy=false;
+async function cloudPush(){
+  if(cloudBusy) return false;
+  cloudBusy=true;
+  try{
+    if(!state.meta) state.meta={};
+    state.meta.savedAt=new Date().toISOString();
+    try{ localStorage.setItem('committee_'+state.meta.id, JSON.stringify(state)); }catch(e){}
+    await cloudSql(
+      'insert into committee_state(id, payload, updated_at) values($1, $2::jsonb, now()) on conflict (id) do update set payload=excluded.payload, updated_at=now()',
+      [CLOUD.key, JSON.stringify(state)]
+    );
+    return true;
+  }catch(e){ return false; }
+  finally{ cloudBusy=false; }
+}
 function load(){
   let embedded=null;
   try{ embedded = JSON.parse($('#committeeData').textContent.trim()); }catch(e){}
@@ -827,7 +879,6 @@ function load(){
   ['responsibilities','authorities','members','meetings','recommendations','tasks','quickLinks'].forEach(k=>{ if(!Array.isArray(state[k])) state[k]=[]; });
   if(!hadLinks){
     state.quickLinks=[{id:'px_default',title:'تجربة المريض',url:'https://moh.hlpx-sa.com/pxconnect/login',user:'',pass:'',note:''}];
-    autosave();
   }
   state.tasks.forEach(t=>{
     if(t.archived===undefined)t.archived=false;
@@ -861,8 +912,21 @@ function load(){
 }
 function isDocumented(m){ return (m.agenda||[]).some(a=>a.discussion); }
 let saveTimer;
-function autosave(){ clearTimeout(saveTimer); saveTimer=setTimeout(()=>{ try{ localStorage.setItem('committee_'+state.meta.id, JSON.stringify(state)); }catch(e){} },400); }
+function autosave(){ clearTimeout(saveTimer); saveTimer=setTimeout(()=>{ try{ localStorage.setItem('committee_'+state.meta.id, JSON.stringify(state)); }catch(e){} cloudPush(); },400); }
 function touch(){ autosave(); renderAll(); }
+async function hydrateCloud(){
+  let embedded=null; try{ embedded=JSON.parse($('#committeeData').textContent.trim()); }catch(e){}
+  let ls=null; try{ ls=JSON.parse(localStorage.getItem('committee_'+(embedded&&embedded.meta.id))||'null'); }catch(e){}
+  const cloud=await cloudPull();
+  const prevLinks=JSON.stringify(state.quickLinks||[]);
+  state=mergeStates(embedded, ls||state, cloud);
+  ['responsibilities','authorities','members','meetings','recommendations','tasks','quickLinks'].forEach(k=>{ if(!Array.isArray(state[k])) state[k]=[]; });
+  try{ localStorage.setItem('committee_'+state.meta.id, JSON.stringify(state)); }catch(e){}
+  const richer=linksScore(state)>linksScore(cloud||{});
+  const newer=cloud && savedAtMs(state)>savedAtMs(cloud);
+  if(newer || (richer && (cloud || linksScore(state)>1))) await cloudPush();
+  if(prevLinks!==JSON.stringify(state.quickLinks||[])) renderAll();
+}
 
 /* ---------- file save (data embedded in HTML) ---------- */
 /* ---- save directly into the file (File System Access API) ---- */
@@ -2289,7 +2353,7 @@ function manageLinksModal(){
       <button class="btn ghost sm" onclick="delQuickLink('${l.id}')">${ic.del} حذف</button>
     </div>
   </div>`).join(''):`<div class="empty"><p>لا روابط بعد — أضف رابط تجربة المريض أو أي منصة أخرى</p></div>`;
-  openModal('إدارة الروابط', body + `<p style="font-size:12px;color:var(--soft);margin:10px 0 12px">بيانات الدخول تُحفظ داخل الملف وعلى هذا الجهاز فقط، ولا تُرسل لأي موقع تلقائياً.</p><div><button class="btn" onclick="linkFormModal()">${ic.plus} إضافة رابط</button></div>`,
+  openModal('إدارة الروابط', body + `<p style="font-size:12px;color:var(--soft);margin:10px 0 12px">تُحفظ الروابط وبيانات الدخول على السحابة وتظهر على أي جهاز يفتح نفس الرابط. لا يُرسل الدخول تلقائياً للموقع الخارجي.</p><div><button class="btn" onclick="linkFormModal()">${ic.plus} إضافة رابط</button></div>`,
     `<button class="btn ghost" onclick="closeModal()">إغلاق</button>`, true);
 }
 function linkFormModal(id){
@@ -2321,7 +2385,7 @@ function delQuickLink(id){
 /* ---------- boot ---------- */
 if(isCommitteeAuthed()) document.body.classList.remove('locked');
 else document.body.classList.add('locked');
-load(); renderAll(); syncTopbarHeight(); checkLinked();
+load(); renderAll(); hydrateCloud(); syncTopbarHeight(); checkLinked();
 if(!isCommitteeAuthed()){ const pin=document.getElementById('loginPin'); if(pin) pin.focus(); }
 /* الافتراضي: وضع الأيقونات على الشاشات الضيقة، والوضع الكامل على الشاشات الواسعة */
 (function initRail(){ let pref=null; try{ pref=localStorage.getItem('navRail'); }catch(e){}
