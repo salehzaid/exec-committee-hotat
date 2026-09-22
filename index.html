@@ -870,9 +870,7 @@ function load(){
   try{ embedded = JSON.parse($('#committeeData').textContent.trim()); }catch(e){}
   let ls=null;
   try{ const raw=embedded? localStorage.getItem('committee_'+embedded.meta.id):null; if(raw) ls=JSON.parse(raw); }catch(e){}
-  if(embedded && ls && ls.meta.savedAt && embedded.meta.savedAt && ls.meta.savedAt>embedded.meta.savedAt) state=ls;
-  else if(embedded) state=embedded;
-  else state=blankState();
+  state=mergeStates(embedded,ls,null);
   // ensure arrays exist
   const hadLinks=Array.isArray(state.quickLinks);
   ['responsibilities','authorities','members','meetings','recommendations','tasks','quickLinks'].forEach(k=>{ if(!Array.isArray(state[k])) state[k]=[]; });
@@ -911,7 +909,11 @@ function load(){
 }
 function isDocumented(m){ return (m.agenda||[]).some(a=>a.discussion); }
 let saveTimer;
-function autosave(){ clearTimeout(saveTimer); saveTimer=setTimeout(()=>{ try{ localStorage.setItem('committee_'+state.meta.id, JSON.stringify(state)); }catch(e){} cloudPush(); },400); }
+function autosave(){
+  clearTimeout(saveTimer);
+  if(state&&state.meta) state.meta.savedAt=new Date().toISOString();
+  saveTimer=setTimeout(()=>{ try{ localStorage.setItem('committee_'+state.meta.id, JSON.stringify(state)); }catch(e){} cloudPush(); },400);
+}
 function touch(){ autosave(); renderAll(); }
 async function hydrateCloud(){
   let embedded=null; try{ embedded=JSON.parse($('#committeeData').textContent.trim()); }catch(e){}
