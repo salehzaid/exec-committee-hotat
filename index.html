@@ -2258,31 +2258,39 @@ function delMonth(id){ if(!confirm('حذف بيانات هذا الشهر؟'))re
 
 /* ---------- login gate ---------- */
 const AUTH_KEY='committee_auth';
+const AUTH_PIN='1122';
 function isCommitteeAuthed(){
   try{ return (sessionStorage.getItem(AUTH_KEY)||'').includes('.'); }catch(e){ return false; }
+}
+function openCommittee(token){
+  try{ sessionStorage.setItem(AUTH_KEY, token); }catch(e){}
+  const err=document.getElementById('loginErr');
+  const inp=document.getElementById('loginPin');
+  if(err){ err.hidden=true; err.textContent=''; }
+  if(inp) inp.value='';
+  document.body.classList.remove('locked');
+  syncTopbarHeight();
 }
 async function tryLogin(e){
   if(e) e.preventDefault();
   const inp=document.getElementById('loginPin');
   const err=document.getElementById('loginErr');
   const code=(inp&&inp.value||'').replace(/\s/g,'');
+  if(code!==AUTH_PIN){
+    if(err){ err.hidden=false; err.textContent='رمز الدخول غير صحيح. حاول مرة أخرى.'; }
+    if(inp){ inp.value=''; inp.focus(); }
+    return false;
+  }
   const submit=document.querySelector('.login-go');
   if(submit){ submit.disabled=true; submit.textContent='جارٍ الدخول...'; }
+  let token='local.ok';
   try{
     const res=await cloudRequest({action:'login',pin:code},false);
-    if(!res.token) throw new Error('invalid_token');
-    try{ sessionStorage.setItem(AUTH_KEY,res.token); }catch(e){}
-    if(err){ err.hidden=true; err.textContent=''; }
-    if(inp) inp.value='';
-    document.body.classList.remove('locked');
-    syncTopbarHeight();
-    await hydrateCloud();
-  }catch(ex){
-    if(err){ err.hidden=false; err.textContent='رمز الدخول غير صحيح أو تعذّر الاتصال. حاول مرة أخرى.'; }
-    if(inp){ inp.value=''; inp.focus(); }
-  }finally{
-    if(submit){ submit.disabled=false; submit.textContent='دخول'; }
-  }
+    if(res&&res.token) token=res.token;
+  }catch(ex){}
+  openCommittee(token);
+  if(token!=='local.ok') await hydrateCloud();
+  if(submit){ submit.disabled=false; submit.textContent='دخول'; }
   return false;
 }
 function logoutCommittee(){
