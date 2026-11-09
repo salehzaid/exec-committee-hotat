@@ -841,7 +841,8 @@ async function cloudRequest(body,withAuth=true){
   const r=await fetch(CLOUD.api,{
     method:'POST',
     headers,
-    body:JSON.stringify(body)
+    body:JSON.stringify(body),
+    signal:AbortSignal.timeout(2500)
   });
   if(!r.ok) throw new Error('cloud_'+r.status);
   return r.json();
